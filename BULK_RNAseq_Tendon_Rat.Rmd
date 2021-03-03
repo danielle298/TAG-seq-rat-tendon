@@ -1,0 +1,64 @@
+---
+title: "Tendon RNA-seq"
+author: "Osman Sharifi"
+date: "3/3/2021"
+output: html_document
+---
+
+```{r quant load}
+################################This is where you load the quant files and inspect them##########################
+dirs <- list.files("/Users/osman/Desktop/miscellaneous/salmon_quant")
+quant_files <- list.files("/Users/osman/Desktop/miscellaneous/salmon_quant",pattern="quant.sf",recursive = TRUE,full.names = TRUE)
+names(quant_files) <- dirs
+quant_files
+
+library(readr)
+quants <- read_tsv(quant_files[1])
+head(quants)
+
+rpk <- quants$NumReads / quants$EffectiveLength
+scale_factor <- sum(rpk) / 1e6
+tpm <- rpk / scale_factor
+```
+```{r transcript mapping}
+################################This is where we will define the rat transcript mapping##########################
+download.file("ftp://ftp.ensembl.org/pub/release-99/gtf/rattus_norvegicus/Rattus_norvegicus.Rnor_6.0.99.chr.gtf.gz",destfile = gtf_file)
+gtf_file <- "Rattus_norvegicus.Rnor_6.0.99.chr.gtf.gz"
+file.exists(gtf_file)
+
+```
+```{r transcript mapping}
+################################Creating a transcript database##########################
+## Could take a few minutes to run the makeTxDbFromGFF command
+#First time you run this, unhash below to install the package
+#if (!requireNamespace("BiocManager", quietly = TRUE))
+    #install.packages("BiocManager")
+
+#BiocManager::install("GenomicFeatures")
+
+library(GenomicFeatures)
+txdb <- makeTxDbFromGFF(gtf_file)
+
+keytypes(txdb)
+columns(txdb)
+k <- keys(txdb, keytype="TXNAME")
+tx_map <- select(txdb, keys = k, columns="GENEID", keytype = "TXNAME")
+head(tx_map)
+
+##if (!requireNamespace("BiocManager", quietly = TRUE))
+    ##install.packages("BiocManager")
+
+##BiocManager::install("tximport")
+library(tximport)
+tx2gene <- tx_map
+write.csv(tx2gene,file="tx2gene.csv",row.names = FALSE,quote=FALSE)
+txi <- tximport(quant_files,type="salmon",tx2gene = tx2gene)
+
+table(tx_map$TXNAME %in% quants$Name)
+tx2gene <- tx_map
+txi <- tximport(quant_files,type="salmon",tx2gene = tx2gene,ignoreTxVersion = TRUE, ignoreAfterBar = TRUE)
+
+names(txi)
+
+```
+
