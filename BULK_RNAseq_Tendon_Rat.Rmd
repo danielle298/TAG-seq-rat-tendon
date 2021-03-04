@@ -7,24 +7,25 @@ output: html_document
 
 ```{r quant load}
 ################################This is where you load the quant files and inspect them##########################
-dirs <- list.files("/Users/osman/Desktop/miscellaneous/salmon_quant")
-quant_files <- list.files("/Users/osman/Desktop/miscellaneous/salmon_quant",pattern="quant.sf",recursive = TRUE,full.names = TRUE)
+setwd("/Users/osman/Desktop/miscellaneous/Danielle_tendon")
+dirs <- list.files("/Users/osman/Desktop/miscellaneous/Danielle_tendon/salmon_quant")
+quant_files <- list.files("/Users/osman/Desktop/miscellaneous/Danielle_tendon/salmon_quant",pattern="quant.sf",recursive = TRUE,full.names = TRUE)
 names(quant_files) <- dirs
 quant_files
 
 library(readr)
 quants <- read_tsv(quant_files[1])
-head(quants)
+head(quants, n = 100)
 
 rpk <- quants$NumReads / quants$EffectiveLength
 scale_factor <- sum(rpk) / 1e6
 tpm <- rpk / scale_factor
 ```
-```{r transcript mapping}
+```{r load rat GTF files}
 ################################This is where we will define the rat transcript mapping##########################
-download.file("ftp://ftp.ensembl.org/pub/release-99/gtf/rattus_norvegicus/Rattus_norvegicus.Rnor_6.0.99.chr.gtf.gz",destfile = gtf_file)
 gtf_file <- "Rattus_norvegicus.Rnor_6.0.99.chr.gtf.gz"
 file.exists(gtf_file)
+download.file("ftp://ftp.ensembl.org/pub/release-99/gtf/rattus_norvegicus/Rattus_norvegicus.Rnor_6.0.99.chr.gtf.gz", destfile = gtf_file)
 
 ```
 ```{r transcript mapping}
@@ -33,32 +34,98 @@ file.exists(gtf_file)
 #First time you run this, unhash below to install the package
 #if (!requireNamespace("BiocManager", quietly = TRUE))
     #install.packages("BiocManager")
-
 #BiocManager::install("GenomicFeatures")
-
+library(dplyr)
 library(GenomicFeatures)
 txdb <- makeTxDbFromGFF(gtf_file)
 
 keytypes(txdb)
 columns(txdb)
+#we want the gene names that correspond to every transcript in the database. To get the names of all transcripts we can use the keys function
 k <- keys(txdb, keytype="TXNAME")
-tx_map <- select(txdb, keys = k, columns="GENEID", keytype = "TXNAME")
+head(k)
+tx_map <- AnnotationDbi::select(txdb, keys = k, columns="GENEID", keytype = "TXNAME")
 head(tx_map)
 
 ##if (!requireNamespace("BiocManager", quietly = TRUE))
     ##install.packages("BiocManager")
-
 ##BiocManager::install("tximport")
 library(tximport)
 tx2gene <- tx_map
 write.csv(tx2gene,file="tx2gene.csv",row.names = FALSE,quote=FALSE)
+
 txi <- tximport(quant_files,type="salmon",tx2gene = tx2gene)
+#txi <- tximport(files, type="salmon", tx2gene=tx2gene)
 
 table(tx_map$TXNAME %in% quants$Name)
 tx2gene <- tx_map
-txi <- tximport(quant_files,type="salmon",tx2gene = tx2gene,ignoreTxVersion = TRUE, ignoreAfterBar = TRUE)
 
 names(txi)
+head(txi$counts)
+all(rownames(sampleinfo) == colnames(txi$counts))
 
+library(tidyr)
+quants <- separate(quants, Name, c("TXNAME","Number"),remove = FALSE)
+head(quants)
+library(dplyr)
+quants <- left_join(quants, tx_map, by="TXNAME")
+head(quants)
+tx2gene <- dplyr:::select(quants, Name, GENEID)
+head(tx2gene)
+tx2gene <- dplyr:::select(quants, Name, GENEID)
+head(tx2gene)
+any(is.na(tx2gene$GENEID))
+tx2gene <- filter(tx2gene, !is.na(GENEID))
+txi <- tximport(quant_files,type="salmon",tx2gene = tx2gene)
 ```
+```{r Quality control of the imported counts}
+library(DESeq2)
+dds <- DESeqDataSetFromTximport(txi, 
+                                colData = sampleinfo,
+                                design <- ~SampleType)
+colData(dds)
+tpm <- txi$abundance
+write.csv(tpm, file="tpm_values.csv",quote=FALSE)
+fpm <- fpm(dds)
+write.csv(fpm, file="fpm_values.csv",quote=FALSE)
+fpkm <- fpkm(dds)
+write.csv(fpkm, file="fpkm_values.csv",quote=FALSE)
+```
+```{r Visualizing library sizes}
+sum(assay(dds)[,1])
+colSums(assay(dds))
 
+is_expressed <- assay(dds) >= 5
+head(is_expressed)
+
+sum(is_expressed[1,])
+sum(is_expressed[2,])
+hist(rowSums(is_expressed),main="Number of samples a gene is expressed in",xlab="Sample Count")
+######This is to keep genes that are at least expressed in two samples #####
+keep <- rowSums(assay(dds) >= 5) >= 2
+table(keep)
+dds <- dds[keep,]
+boxplot(assay(dds))
+boxplot(log10(assay(dds)))
+
+# Get log2 counts
+vsd <- vst(dds,blind=TRUE)
+# Check distributions of samples using boxplots
+boxplot(assay(vsd), xlab="", ylab="Log2 counts per million",las=2,main="Normalised Distributions")
+# Let's add a blue horizontal line that corresponds to the median logCPM
+abline(h=median(assay(vsd)), col="blue")
+
+##### Create a heatmap of sample to sample differences####
+sampleDists <- dist(t(assay(vsd)))
+library(RColorBrewer)
+library(pheatmap)
+sampleDistMatrix <- as.matrix(sampleDists)
+rownames(sampleDistMatrix) <- paste(colData(dds)$SampleType, colData(dds)$Status, sep="-")
+colnames(sampleDistMatrix) <- colData(dds)$Name
+colors <- colorRampPalette( rev(brewer.pal(9, "Blues")) )(255)
+pheatmap(sampleDistMatrix,
+         col=colors)
+
+###### This is the PCA plot you are looking for #####
+plotPCA(vsd,intgroup="SampleType")
+```
