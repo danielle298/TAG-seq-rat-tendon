@@ -1,0 +1,225 @@
+---
+title: "DS TagSeq"
+author: "Monica Pechanec"
+date: "3/2/2021"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+
+#BiocManager::install("org.Rn.eg.db")
+
+library(tximport)
+library(DESeq2)
+library(ggplot2)
+
+```
+
+## R Markdown
+
+```{r Set Working Directory, include = T}
+setwd("C:/Users/Monica/Desktop/TagSeq")
+
+```
+
+
+##Loading in Quant and Design files for ALL samples
+
+```{r Quant and Design Files, include = T}
+
+fileDS <- (c('DS1quant.sf',
+             'DS2quant.sf',
+             'DS3quant.sf',
+             'DS4quant.sf',
+             'DS5quant.sf',
+             'DS6quant.sf',
+             'DS7quant.sf',
+             'DS8quant.sf',
+             'DS9quant.sf',
+             'DS10quant.sf',
+             'DS11quant.sf',
+             'DS12quant.sf'))
+
+file.exists(fileDS)
+
+designfile <- read.delim(file = "designfile.txt")
+
+```
+
+#
+```{r tx2gene, eval=FALSE, include=FALSE}
+columns(org.Rn.eg.db)
+
+keytypes(org.Rn.eg.db)
+
+keys <-(keys(org.Rn.eg.db, keytype = "REFSEQ" ))
+
+RNtxdb <- select(org.Rn.eg.db, keys=keys, columns=c("REFSEQ", "SYMBOL"), keytype = "REFSEQ")
+```
+
+##
+
+```{r tximport and DESeq2}
+
+txiDS <- tximport(fileDS, type ="salmon", txOut = TRUE , tx2gene = NULL)
+
+ddsDS <- DESeqDataSetFromTximport(txi = txiDS,
+                                colData = designfile,
+                                design = ~Age + Scar)
+
+ddsDS <- DESeq(ddsDS)
+
+# Filtering to remove rows with 0 reads
+ddsDS <- ddsDS[ rowSums(counts(ddsDS)) > 1, ] 
+
+#Confirm the design contrast
+resultsNames(ddsDS)
+
+
+#Subset the genes that are significantly differentially expressed
+res.age <- results(ddsDS, contrast = c("Age", "P11", "Adult"))
+res.age.2 <- subset(res.age, padj<0.01) 
+res.age.3 <- subset(res.age.2, abs(log2FoldChange) >1)
+
+
+```
+
+## Variance Stabilizing Transformation
+
+The variance stabilizing transformation (VST) or the regularized log transformation (rlog) can be done but we will use the VST. The rlog minimizes differences between samples for rows with small counts and normalizes with respect to library size.  
+
+
+```{r VST}
+
+vsd <- vst(ddsDS, blind = FALSE)
+
+```
+
+
+
+Manipulating the PCA plot where in round(100 *) the 100 is 100% of the variance and the plot is also changed for the ggplot to make it look nice with ellipses
+
+```{r Plotting PCA for Visualizing Age and Cell Type, fig.width=8, fig.height=6}
+
+
+PCAdata <- plotPCA(vsd, intgroup=c( "Age", "Scar"), returnData=TRUE)
+
+percentVar2 <- round(100 * attr(PCAdata, "percentVar"))
+
+PCA_Age_Scar <-ggplot(PCAdata, aes(PC1, PC2, color = Scar, group = Age))+ 
+                      theme_bw()+
+                      geom_point(size=5, alpha = 0.6, aes(shape = Age)) + 
+                      scale_colour_manual(values = c("slateblue2","green4", "darkorange1", "gray16"),                          breaks=c("P11","Adult","Yes", "No"))+
+                      xlab(paste0("PC1: ",percentVar2[1],"% variance")) +
+                      ylab(paste0("PC2: ",percentVar2[2],"% variance")) +
+                      theme(text = element_text(size=15)) + 
+                      labs(color = "Condition") + 
+                      ggtitle("PCA for TagSeq excuding 95% Confidence Interval Ellipse") +
+                      theme(plot.title = element_text(hjust = 0.5))
+  
+PCA_Age_Scar
+
+# stat_ellipse(aes(x=PC1, y=PC2, color = Scar, group = Scar), linetype = 2, size =1)+
+#save file as png
+
+#png("PCA_Age+Scar.png", width = 600, height = 450)
+#PCA_Age_Scar
+#dev.off()
+
+#pdf("PCA_Age+Scar.pdf", width = 7, height = 5)
+#PCA_Age_Scar
+#dev.off()
+
+```
+
+
+##### Looking at only Adult Scar vs Healthy
+
+```{r Quant and Design Files Adult, include = T}
+
+fileDSAdult <- (c('DS1quant.sf',
+             'DS2quant.sf',
+             'DS3quant.sf',
+             'DS4quant.sf',
+             'DS5quant.sf',
+             'DS6quant.sf',
+             'DS7quant.sf',
+             'DS8quant.sf'))
+
+file.exists(fileDSAdult)
+
+designfileAdult <- read.delim(file = "designfileAdult.txt")
+
+
+```
+
+
+```{r tximport and DESeq2 Adult}
+
+txiDSAdult <- tximport(fileDSAdult, type ="salmon", txOut = TRUE , tx2gene = NULL)
+
+ddsDSAdult <- DESeqDataSetFromTximport(txi = txiDSAdult,
+                                colData = designfileAdult,
+                                design = ~Scar)
+
+ddsDSAdult <- DESeq(ddsDSAdult)
+
+# Filtering to remove rows with 0 reads
+ddsDSAdult <- ddsDSAdult[ rowSums(counts(ddsDSAdult)) > 1, ] 
+
+#Confirm the design contrast
+resultsNames(ddsDSAdult)
+
+
+#Subset the genes that are significantly differentially expressed
+res.ageAdult <- results(ddsDSAdult, contrast = c("Scar", "Yes", "No"))
+res.age.2Adult <- subset(res.ageAdult, padj<0.01) 
+res.age.3Adult <- subset(res.age.2Adult, abs(log2FoldChange) >1)
+
+
+```
+
+
+```{r VST Adult}
+
+vsd <- vst(ddsDSAdult, blind = FALSE)
+
+```
+
+
+```{r Plotting PCA for Visualizing Age and Cell Type Adult, fig.width=8, fig.height=6}
+
+
+PCAdataAdult <- plotPCA(vsd, intgroup=c("Scar"), returnData=TRUE)
+
+percentVar2Adult <- round(100 * attr(PCAdata, "percentVar"))
+
+PCA_ScarAdult <-ggplot(PCAdataAdult, aes(PC1, PC2, color = Scar, group = Scar))+ 
+                      theme_bw()+
+                      geom_point(size=7, alpha = 0.6) + 
+                      scale_colour_manual(values = c("slateblue2","green4", "darkorange1", "gray16"),                          breaks=c("P11","Adult","Yes", "No"))+
+                      xlab(paste0("PC1: ",percentVar2[1],"% variance")) +
+                      ylab(paste0("PC2: ",percentVar2[2],"% variance")) +
+                      theme(text = element_text(size=15)) + 
+                      labs(color = "Condition") + 
+                      ggtitle("PCA for TagSeq") +
+                      theme(plot.title = element_text(hjust = 0.5))
+  
+PCA_ScarAdult
+
+# stat_ellipse(aes(x=PC1, y=PC2, color = Scar, group = Scar), linetype = 2, size =1)+
+#save file as png
+
+#png("PCA_Age+Scar.png", width = 600, height = 450)
+#PCA_Age_Scar
+#dev.off()
+
+#pdf("PCA_Age+Scar.pdf", width = 7, height = 5)
+#PCA_Age_Scar
+#dev.off()
+```
+
+
+
