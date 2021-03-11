@@ -1,7 +1,5 @@
 # TAG-seq-rat-tendon
 
-DESeq2 will be performed on here
-
 Factors: age (adult, developmental) & injury (scar, healthy):
 
 	1-4: adult, healthy
