@@ -20,7 +20,7 @@ library(ggplot2)
 ## R Markdown
 
 ```{r Set Working Directory, include = T}
-setwd("C:/Users/Monica/Desktop/TagSeq")
+setwd("c:/Users/Danielle1/Documents/Data/DS73TagSeqSalmonQuant")
 
 ```
 
